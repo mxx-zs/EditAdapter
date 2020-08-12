@@ -47,10 +47,12 @@ abstract class BaseQuickEditModeAdapter<T : Selected, VH : BaseViewHolder>(
 
     companion object {
 
-        const val SHOW_MODE = 0x101
-        const val EDIT_MODE = 0x202
-        const val SELECT_MODE_PARENT = 0x201
-        const val SELECT_MODE_CHILD = 0x202
+        const val SHOW_MODE = 0x101 // 展示模式
+        const val EDIT_MODE = 0x202 // 编辑模式
+        const val SELECT_MODE_PARENT = 0x201 // 选择模式 - 整个item
+        const val SELECT_MODE_CHILD = 0x202 // 选择模式 - 仅CheckBox
+        const val SELECT_TYPE_MULTI = 0x301 // 选择类型 - 多选
+        const val SELECT_TYPE_SINGLE = 0x302 // 选择类型 - 单选
 
     }
 
@@ -90,7 +92,7 @@ abstract class BaseQuickEditModeAdapter<T : Selected, VH : BaseViewHolder>(
     /**
      * 获取当切换显示模式[BaseQuickEditModeAdapter.SHOW_MODE]和
      * 编辑模式[BaseQuickEditModeAdapter.EDIT_MODE]时, 需要隐藏的View,
-     * 一般为复选框[IEditKernelView.getCheckBox]
+     * 一般为复选框
      */
     abstract fun getHideView(helper: VH): View?
 
@@ -102,6 +104,15 @@ abstract class BaseQuickEditModeAdapter<T : Selected, VH : BaseViewHolder>(
      */
     open fun getSelectMode(): Int {
         return SELECT_MODE_PARENT
+    }
+
+    /**
+     * 获取选择类型
+     *
+     * 默认 [SELECT_TYPE_MULTI]
+     */
+    open fun getSelectType(): Int {
+        return SELECT_TYPE_MULTI
     }
 
     /**
@@ -160,6 +171,13 @@ abstract class BaseQuickEditModeAdapter<T : Selected, VH : BaseViewHolder>(
     }
 
     /**
+     * 单选类型检查
+     */
+    private fun singleTypeCheckSelect(): Boolean {
+        return getSelectType() == SELECT_TYPE_SINGLE && selectedList.isNotEmpty()
+    }
+
+    /**
      * 选择模式[SELECT_MODE_PARENT]核心
      */
     private fun selectModeParentKernel(vh: VH, t: T) {
@@ -171,6 +189,7 @@ abstract class BaseQuickEditModeAdapter<T : Selected, VH : BaseViewHolder>(
         oldItemClickListener = getOnItemClickListener()
         itemView.setOnClickListener {
             val selected = !t.isSelected
+            if (singleTypeCheckSelect() && selected) return@setOnClickListener
             checkBox.isChecked = selected
             processSelected(t, selected)
             callBackSelectedCount()
@@ -186,10 +205,8 @@ abstract class BaseQuickEditModeAdapter<T : Selected, VH : BaseViewHolder>(
         checkBox.isChecked = t.isSelected
         if (currentMode == EDIT_MODE) {
             checkBox.setOnCheckedChangeListener { buttonView: CompoundButton, isChecked: Boolean ->
-                //过滤非人为点击
-                if (!buttonView.isPressed) {
-                    return@setOnCheckedChangeListener
-                }
+                if (!buttonView.isPressed) return@setOnCheckedChangeListener //过滤非人为点击
+                if (singleTypeCheckSelect() && isChecked) return@setOnCheckedChangeListener
                 processSelected(t, isChecked)
                 callBackSelectedCount()
             }
@@ -220,11 +237,17 @@ abstract class BaseQuickEditModeAdapter<T : Selected, VH : BaseViewHolder>(
 
     /**
      * 删除Item从已选择列表[selectedList]
+     *
+     * true: [selectedList] 包含此元素 false: [selectedList] 不包含此元素
      */
-    private fun removeItemForSelectedList(t: T) {
-        val identityHashCode = System.identityHashCode(t)
+    private fun removeItemForSelectedList(t: T): Boolean {
         t.isSelected = false
-        selectedList.remove(identityHashCode)
+        val identityHashCode = System.identityHashCode(t)
+        if (selectedList.contains(identityHashCode)) {
+            selectedList.remove(identityHashCode)
+            return true
+        }
+        return false
     }
 
     /**
@@ -263,6 +286,7 @@ abstract class BaseQuickEditModeAdapter<T : Selected, VH : BaseViewHolder>(
      * 选择全部Item
      */
     open fun selectedAllItem() {
+        if (getSelectType() == SELECT_TYPE_SINGLE) return
         if (data.isNotEmpty() && checkEditMode()) {
             for (i in data.indices) {
                 val t = data[i]
@@ -277,6 +301,7 @@ abstract class BaseQuickEditModeAdapter<T : Selected, VH : BaseViewHolder>(
      * 取消选择全部Item
      */
     open fun unSelectedAllItem() {
+        if (getSelectType() == SELECT_TYPE_SINGLE) return
         if (data.isNotEmpty() && checkEditMode()) {
             for (i in data.indices) {
                 val t = data[i]
@@ -295,9 +320,8 @@ abstract class BaseQuickEditModeAdapter<T : Selected, VH : BaseViewHolder>(
             // 循环内删除元素需要倒序删除
             for (i in data.indices.reversed()) {
                 val t = data[i]
-                val identityHashCode = System.identityHashCode(t)
-                if (selectedList.contains(identityHashCode)) {
-                    selectedList.remove(data.removeAt(i))
+                if (removeItemForSelectedList(t)) {
+                    data.removeAt(i)
                     removeItem(i)
                 }
             }
@@ -379,9 +403,8 @@ abstract class BaseQuickEditModeAdapter<T : Selected, VH : BaseViewHolder>(
             this.externalCheckBox = externalCheckBox
             externalCheckBox.setOnCheckedChangeListener(CompoundButton.OnCheckedChangeListener { buttonView: CompoundButton, isChecked: Boolean ->
                 checkedChangeListener?.onCheckedChanged(buttonView, isChecked)
-                // 过滤非任务点击行为
                 if (!buttonView.isPressed) return@OnCheckedChangeListener
-                if (data.isNotEmpty()) {
+                if (getSelectType() != SELECT_TYPE_SINGLE && data.isNotEmpty()) {
                     if (!isChecked || isSelectedAllItem()) {
                         unSelectedAllItem() // 取消全选
                     } else {

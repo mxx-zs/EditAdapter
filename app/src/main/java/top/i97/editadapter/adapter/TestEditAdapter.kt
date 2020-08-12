@@ -42,6 +42,10 @@ class TestEditAdapter(data: MutableList<MyDataBean>) : BaseQuickEditModeAdapter<
         helper.setText(R.id.tvTitle, item.title)
     }
 
+    override fun getSelectType(): Int {
+        return SELECT_TYPE_SINGLE // 单选模式
+    }
+
     override fun getCheckBox(helper: BaseViewHolder): CheckBox? {
         return helper.getView(R.id.checkBox)
     }
